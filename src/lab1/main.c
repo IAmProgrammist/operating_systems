@@ -50,7 +50,7 @@ int main()
             */
             printf("Мы в листе 3! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
             // Выполняем работу
-            sleep(2);
+            sleep(30);
             // И выходим из процесса
             exit(0);
         }
@@ -71,7 +71,7 @@ int main()
             */
             printf("Мы в листе 4! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
             // Выполняем работу
-            sleep(3);
+            sleep(30);
             // И выходим из процесса
             exit(0);
         }
@@ -133,7 +133,7 @@ int main()
             */
             printf("Мы в листе 5! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
             // Выполняем работу
-            sleep(4);
+            sleep(30);
             // И выходим из процесса
             exit(0);
         }
@@ -154,7 +154,7 @@ int main()
             */
             printf("Мы в листе 6! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
             // Выполняем работу
-            sleep(5);
+            sleep(30);
             // И выходим из процесса
             exit(0);
         }

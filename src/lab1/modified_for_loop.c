@@ -46,7 +46,7 @@ int main() {
     }
 
     printf("Мы находимся на глубине %d\nТекущий pid = %d и ppid = %d\n", MAX_LEVEL - 1, getpid(), getppid());
-    sleep(3);
+    sleep(30);
     exit(0); 
 
     return 0;
