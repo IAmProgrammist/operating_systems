@@ -3,210 +3,222 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+#define MAX_LEVEL 3
+#define ARRAY_SIZE 20
+#define DELAY 400
+#define FIFO_NAME "./os_lab_1_1_%d"
+
+// Сортировка вставками, искусственная нагруженность
+// создается при помощи usleep
+int insertion_sort(int *array, int size)
+{
+    for (int i = 0; i < size; i++)
+    {
+        int j = i;
+        while (j >= 1 && array[j] < array[j - 1])
+        {
+            int tmp = array[j];
+            array[j] = array[j - 1];
+            array[j - 1] = tmp;
+            usleep(DELAY * 1000);
+            j--;
+        }
+    }
+}
+
+void saveFifo(int id, int *array, int arraySize)
+{
+    char *name = malloc(sizeof(char) * 30);
+    sprintf(name, FIFO_NAME, id);
+    FILE *fp = fopen(name, "w");
+    for (int i = 0; i < arraySize; i++)
+    {
+        fprintf(fp, "%d ", array[i]);
+    }
+    fflush(fp);
+    fclose(fp);
+    free(name);
+}
+
+int retreiveFifo(int id, int *array, int arraySize)
+{
+    char *name = malloc(sizeof(char) * 30);
+    sprintf(name, FIFO_NAME, id);
+    FILE *fp = fopen(name, "r");
+    int element;
+    int i;
+    for (i = 0; i < arraySize && (fscanf(fp, "%d ", &element) != EOF); i++)
+    {
+        array[i] = element;
+    }
+    fclose(fp);
+    free(name);
+    return i;
+}
+
+int tree_rec(int id, int *workersId, int workersSize)
+{
+    // Получаем текущий pid
+    int currentPid = getpid();
+    printf("Поддерево %d: поддерево с id = %d начало свою работу.\n", currentPid, id);
+    pid_t left = -1, right = -1;
+    // Если необходимо, создаём левое поддерево
+    if (id * 2 + 1 < workersSize)
+    {
+        left = fork();
+        if (left == 0)
+            tree_rec(id * 2 + 1, workersId, workersSize);
+
+        printf("Поддерево %d: инициализация левого поддерева с pid = %d.\n", currentPid, left);
+    }
+
+    // Если необходимо, создаём правое поддерево
+    if (id * 2 + 2 < workersSize)
+    {
+        right = fork();
+        if (right == 0)
+            tree_rec(id * 2 + 2, workersId, workersSize);
+
+        printf("Поддерево %d: инициализация правого поддерева с pid = %d.\n", currentPid, right);
+    }
+
+    for (int i = 0; i < workersSize; i++)
+    {
+        // Создаём буффер для элементов массива
+        int *buffer = malloc(sizeof(int *) * 1000);
+        if (id == workersId[i])
+        {
+            // Читаем числа из массива
+            printf("Поддерево %d: обнаружено задание с id = %d.\n", currentPid, i + 1);
+            int bufSize = retreiveFifo(i + 1, buffer, 1000);
+
+            // Выполняем сортировку
+            insertion_sort(buffer, bufSize);
+            // Сохраняем элементы в файл
+            saveFifo(i + 1, buffer, bufSize);
+        }
+        free(buffer);
+    }
+
+    // Ожидаем, когда свою работу закончат поддеревья. Если происходит ошибка, выходим с ошибкой
+    printf("Поддерево %d: завершило свои задачи и ожидает дочерние поддеревья.\n", currentPid);
+    int status;
+    if (left != -1)
+    {
+        printf("Поддерево %d: ожидаем окончания поддерева с pid = %d.\n", currentPid, left);
+        waitpid(left, &status, 0);
+        if (status)
+        {
+            printf("Поддерево %d: поддерево %d завешилось с ошибкой\n", currentPid, left);
+            exit(status);
+        }
+    }
+
+    if (right != -1)
+    {
+        printf("Поддерево %d: ожидаем окончания поддерева с pid = %d.\n", currentPid, right);
+        waitpid(right, &status, 0);
+        if (status)
+        {
+            printf("Поддерево %d: поддерево %d завешилось с ошибкой\n", currentPid, left);
+            exit(status);
+        }
+    }
+
+    exit(0);
+}
+
+int tree()
+{
+    // Создаём корень
+    pid_t root = fork();
+    if (root == 0)
+    {
+        // Прочитываем файл, который указывает, какому 
+        // элементу дерева какой массив сортировать
+        int *workers = malloc(sizeof(int *) * 1000);
+        int workersSize = retreiveFifo(0, workers, 1000);
+
+        // Запускаем рекурентную сортировку
+        tree_rec(0, workers, workersSize);
+
+        // Освобождение ресурсов
+        free(workers);
+        exit(0);
+    }
+
+    int status;
+    waitpid(root, &status, 0);
+    if (status)
+    {
+        exit(status);
+    }
+}
 
 int main()
 {
-    int status = 0;
-    /*
-    Получаем PID текущего процесса, корня дерева и выводим его. Дерево:
-
-    0
-
-    */
-    printf("Мы начали в корне 0! Тут pid = %d.\n", getpid());
-
-    /*
-    Создаём левый элемент для корня 0, создаём процесс.
-    Если node_1 == 0, значит мы находимся в дочернем листе.
-    Иначе смотреть ниже для создания правого элемента для корня
-    дерева.
-    */
-    pid_t node_1 = fork();
-    if (node_1 == 0)
+    // Наша задача - отсортировать массив чисел. Инициалазируем его
+    // и заполняем случайными числами под количетсво поддеревьев и листьев
+    int arraysAmount = ((1 << MAX_LEVEL) - 1);
+    int **sortArray = malloc(sizeof(int *) * arraysAmount);
+    for (int i = 0; i < arraysAmount; i++)
     {
-        /*
-        Получаем PID текущего процесса-поддерева и PID родительского элемента PPID. Дерево:
-
-          0
-         / \
-        1  ...
-
-        */
-        printf("Мы в поддереве 1! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
-
-        // Аналогично создзаём левый элемент для поддерева 1.
-        // если это дочерний процесс - это лист, выполняем работу.
-        pid_t node_3 = fork();
-        if (node_3 == 0)
+        sortArray[i] = malloc(sizeof(int) * ARRAY_SIZE);
+        for (int j = 0; j < ARRAY_SIZE; j++)
         {
-            /*
-            Получаем PID текущего процесса-поддерева и PID родительского элемента PPID. Дерево:
-
-                0
-               / \
-              1  ...
-             / \
-            3  ...
-            */
-            printf("Мы в листе 3! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
-            // Выполняем работу
-            sleep(30);
-            // И выходим из процесса
-            exit(0);
+            sortArray[i][j] = rand() % 1000;
         }
-
-        // Аналогично создзаём правый элемент для поддерева 1.
-        // если это дочерний процесс - это лист, выполняем работу.
-        pid_t node_4 = fork();
-        if (node_4 == 0)
-        {
-            /*
-            Получаем PID текущего процесса-поддерева и PID родительского элемента PPID. Дерево:
-
-                 0
-                / \
-               1  ...
-              / \
-            ...  4
-            */
-            printf("Мы в листе 4! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
-            // Выполняем работу
-            sleep(30);
-            // И выходим из процесса
-            exit(0);
-        }
-        
-        // Ожидаем, когда закончат выполнение листы поддерева и если в них возникает ошибка
-        // возвращаем ошибку
-        printf("Ожидаем окончания листа 3 с pid = %d.\n", node_3);
-        waitpid(node_3, &status, 0);
-        if (status)
-        {
-            printf("Лист 3 завершился с ошибкой!\n");
-            exit(status);
-        }
-
-        printf("Ожидаем окончания листа 4 с pid = %d.\n", node_4);
-        waitpid(node_4, &status, 0);
-        if (status)
-        {
-            printf("Лист 4 завершился с ошибкой!\n");
-            exit(status);
-        }
-
-        // Листы выполнились корректно, возвращаем 0.
-        exit(0);
     }
 
-    /*
-    Создаём правый элемент для корня 0, создаём процесс.
-    Если node_2 == 0, значит мы находимся в дочернем листе.
-    Иначе смотреть ниже для ожидания окончания выполнения элементов
-    дерева
-    */
-    pid_t node_2 = fork();
-    if (node_2 == 0)
+    // Задаём соответствие, какой id поддерева/листа какой массив сортирует
+    int *workersId = malloc(sizeof(int) * arraysAmount);
+    for (int i = 0; i < arraysAmount; i++)
     {
-        /*
-        Получаем PID текущего процесса-поддерева и PID родительского элемента PPID. Дерево:
-
-           0
-          / \
-        ...  2
-
-        */
-        printf("Мы в поддереве 2! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
-
-        // Аналогично создзаём левый элемент для поддерева 2.
-        // если это дочерний процесс - это лист, выполняем работу.
-        pid_t node_5 = fork();
-        if (node_5 == 0)
-        {
-            /*
-            Получаем PID текущего процесса-поддерева и PID родительского элемента PPID. Дерево:
-
-               0
-              / \
-            ...  2
-                / \
-               5  ...
-            */
-            printf("Мы в листе 5! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
-            // Выполняем работу
-            sleep(30);
-            // И выходим из процесса
-            exit(0);
-        }
-
-        // Иначе - создаём новый лист. Если это дочерний процесс - это лист
-        // и выполняем работу
-        pid_t node_6 = fork();
-        if (node_6 == 0)
-        {
-            /*
-            Получаем PID текущего процесса-поддерева и PID родительского элемента PPID. Дерево:
-
-               0
-              / \
-            ...  2
-                / \
-              ...  6
-            */
-            printf("Мы в листе 6! Тут pid = %d, ppid = %d.\n", getpid(), getppid());
-            // Выполняем работу
-            sleep(30);
-            // И выходим из процесса
-            exit(0);
-        }
-
-        // Ожидаем, когда закончат выполнение листы поддерева и если в них возникает ошибка
-        // возвращаем ошибку
-        printf("Ожидаем окончания листа 5 с pid = %d.\n", node_5);
-        waitpid(node_5, &status, 0);
-        if (status)
-        {
-            printf("Лист 5 завершился с ошибкой!\n");
-            exit(status);
-        }
-
-        printf("Ожидаем окончания листа 6 с pid = %d.\n", node_6);
-        waitpid(node_6, &status, 0);
-        if (status)
-        {
-            printf("Лист 6 завершился с ошибкой!\n");
-            exit(status);
-        }
-
-        // Листы выполнились корректно, возвращаем 0.
-        exit(0);
+        workersId[i] = i;
     }
 
-    /*
-    Ожидаем, пока левый элемент node_1 выполняет свою работу. Если
-    он выполняется с ошибкой, возвращаем эту ошибку.
-    */
-    printf("Ожидаем окончания поддерева 1 с pid = %d.\n", node_1);
-    waitpid(node_1, &status, 0);
-    if (status)
+    // Запишем, какому дереву соответствует какой массив в файл
+    saveFifo(0, workersId, arraysAmount);
+    // Запишем в файлы массивы для сортировки
+    for (int i = 0; i < arraysAmount; i++)
     {
-        printf("Поддерево 1 завершилось с ошибкой!\n");
-        exit(status);
+        saveFifo(i + 1, sortArray[i], ARRAY_SIZE);
     }
 
-    /*
-    Ожидаем, пока правый элемент node_2 выполняет свою работу. Если
-    он выполняется с ошибкой, возвращаем эту ошибку.
-    */
-    printf("Ожидаем окончания поддерева 2 с pid = %d.\n", node_2);
-    waitpid(node_2, &status, 0);
-    if (status)
-    {
-        printf("Поддерево 2 завершилось с ошибкой!\n");
-        exit(status);
+    printf("********************\n");
+    printf("Пейлоад задач:\n");
+    for (int i = 0; i < arraysAmount; i++) {
+        printf("%d ", workersId[i]);
     }
+    printf("\nМассивы:\n");
+    for (int i = 0; i < arraysAmount; i++) {
+        printf("%d: ", i);
+        for (int j = 0; j < ARRAY_SIZE; j++) {
+            printf("%d ", sortArray[i][j]);
+        }
+        printf("\n");
+    }
+    printf("********************\n");
 
-    /*
-    Все процессы-поддеревья выполнены корректно, возвращаем 0.
-    */
+
+    printf("Выполняется сортировка...\n");
+    // Запускаем сортировку
+    tree(sortArray, workersId);
+    printf("Сортировка выполнена\n");
+    printf("********************\n");
+    printf("Массивы:\n");
+    for (int i = 0; i < arraysAmount; i++) {
+        printf("%d: ", i);
+        int bufSize = retreiveFifo(i + 1, sortArray[i], ARRAY_SIZE);
+        for (int j = 0; j < ARRAY_SIZE; j++) {
+            printf("%d ", sortArray[i][j]);
+        }
+        printf("\n");
+    }
+    printf("********************\n");
     return 0;
 }
