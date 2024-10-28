@@ -6,8 +6,12 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/ptrace.h>
+#include <sys/wait.h>
+#include <sys/user.h> // Для структуры user_regs_struct
 
-#define MAX_LEVEL 3
+#define MAX_LEVEL (3)
+#define ARRAYS_AMOUNT ((1 << MAX_LEVEL) - 1)
 #define ARRAY_SIZE 20
 #define DELAY 400
 #define FIFO_NAME "./os_lab_1_1_%d"
@@ -60,73 +64,150 @@ int retreiveFifo(int id, int *array, int arraySize)
     return i;
 }
 
-int tree_rec(int id, int *workersId, int workersSize)
+void sortFifo(int id)
 {
+    pid_t currentPid = getpid();
+    printf("Поддерево %d: выполняется сортировка задачи id = %d.\n", currentPid, id);
+    // Создаём буффер для элементов массива
+    int *buffer = malloc(sizeof(int *) * 1000);
+    // Читаем числа из массива
+    int bufSize = retreiveFifo(id, buffer, 1000);
+
+    // Выполняем сортировку
+    insertion_sort(buffer, bufSize);
+    // Сохраняем элементы в файл
+    saveFifo(id, buffer, bufSize);
+    free(buffer);
+}
+
+typedef struct Delegation
+{
+    // На сколько уровней необходимо опустить делегацию вниз по дереву
+    int level;
+    // id задачи
+    int id;
+} Delegation;
+
+void process_child(int pid, Delegation *delegations, int *delegationsSize)
+{
+    int currentPid = getpid();
+    int status;
+    struct user_regs_struct regs;
+    if (pid != -1)
+    {
+        printf("Поддерево %d: ожидаем окончания поддерева с pid = %d.\n", currentPid, pid);
+        // Ожидаем, пока поддерево не приостановит своё выполнение
+        waitpid(pid, &status, 0);
+        // Если мы не вышли из процесса
+        while (!WIFEXITED(status))
+        {
+            // Считаем регистры
+            if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1)
+            {
+                perror("ptrace GETREGS");
+                exit(1);
+            }
+
+            // r14 = уровень, r15 = какая задача
+            Delegation del = {regs.r14, regs.r15};
+
+            printf("Поддерево %d: получена перенаправленная задачи на %d уровней вверх, id = %d.\n", currentPid, del.level, del.id);
+
+            // Если необходимый уровень достиг, выполняем сортировку.
+
+            if (del.level == 0)
+                sortFifo(del.id);
+            else
+            {
+                // Иначе - добавляем в массив передачи задач.
+                // Мы передадим этот массив родителю.
+                del.level--;
+                delegations[(*delegationsSize)++] = del;
+            }
+
+            // Продолжить выполнение процесса до следующей остановки
+            if (ptrace(PTRACE_CONT, pid, 0, 0) == -1)
+            {
+                perror("ptrace PTRACE_CONT");
+                exit(1);
+            }
+
+            // Ожидаем следующей остановки дочернего процесса
+            waitpid(pid, &status, 0);
+        }
+
+        if (status)
+        {
+            printf("Поддерево %d: поддерево %d завешилось с ошибкой\n", currentPid, pid);
+            exit(status);
+        }
+    }
+}
+
+int tree_rec(int id)
+{
+    int delegationsSize = 0;
+    Delegation *delegations = malloc(sizeof(Delegation) * (ARRAYS_AMOUNT / 2));
     // Получаем текущий pid
     int currentPid = getpid();
     printf("Поддерево %d: поддерево с id = %d начало свою работу.\n", currentPid, id);
     pid_t left = -1, right = -1;
     // Если необходимо, создаём левое поддерево
-    if (id * 2 + 1 < workersSize)
+    if (id * 2 + 1 < ARRAYS_AMOUNT)
     {
         left = fork();
         if (left == 0)
-            tree_rec(id * 2 + 1, workersId, workersSize);
+            tree_rec(id * 2 + 1);
 
         printf("Поддерево %d: инициализация левого поддерева с pid = %d.\n", currentPid, left);
     }
 
     // Если необходимо, создаём правое поддерево
-    if (id * 2 + 2 < workersSize)
+    if (id * 2 + 2 < ARRAYS_AMOUNT)
     {
         right = fork();
         if (right == 0)
-            tree_rec(id * 2 + 2, workersId, workersSize);
+            tree_rec(id * 2 + 2);
 
         printf("Поддерево %d: инициализация правого поддерева с pid = %d.\n", currentPid, right);
     }
 
-    for (int i = 0; i < workersSize; i++)
-    {
-        // Создаём буффер для элементов массива
-        int *buffer = malloc(sizeof(int *) * 1000);
-        if (id == workersId[i])
-        {
-            // Читаем числа из массива
-            printf("Поддерево %d: обнаружено задание с id = %d.\n", currentPid, i + 1);
-            int bufSize = retreiveFifo(i + 1, buffer, 1000);
-
-            // Выполняем сортировку
-            insertion_sort(buffer, bufSize);
-            // Сохраняем элементы в файл
-            saveFifo(i + 1, buffer, bufSize);
-        }
-        free(buffer);
-    }
+    // Выполняем саму задачу
+    sortFifo(id);
 
     // Ожидаем, когда свою работу закончат поддеревья. Если происходит ошибка, выходим с ошибкой
     printf("Поддерево %d: завершило свои задачи и ожидает дочерние поддеревья.\n", currentPid);
-    int status;
-    if (left != -1)
+
+    process_child(left, delegations, &delegationsSize);
+    process_child(right, delegations, &delegationsSize);
+
+    if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1)
     {
-        printf("Поддерево %d: ожидаем окончания поддерева с pid = %d.\n", currentPid, left);
-        waitpid(left, &status, 0);
-        if (status)
-        {
-            printf("Поддерево %d: поддерево %d завешилось с ошибкой\n", currentPid, left);
-            exit(status);
-        }
+        // Объявление, что текущий процесс желает быть
+        // отслеживаемым родительским процессом
+        perror("PTRACE_TRACEME");
+        exit(1);
     }
 
-    if (right != -1)
+    // Для каждой делегации из массива делегаций
+    for (int i = 0; i < delegationsSize; i++)
     {
-        printf("Поддерево %d: ожидаем окончания поддерева с pid = %d.\n", currentPid, right);
-        waitpid(right, &status, 0);
-        if (status)
-        {
-            printf("Поддерево %d: поддерево %d завешилось с ошибкой\n", currentPid, left);
-            exit(status);
-        }
+        Delegation del = delegations[i];
+        int64_t delLevel = del.level;
+        int64_t delId = del.id;
+        printf("Поддерево %d: выполняется перенаправление задачи на %d уровней вверх, id = %d.\n", currentPid, del.level, del.id);
+        // Сохраним делегацию в регистры
+        __asm__ volatile(
+            "movq %0, %%r14\n"
+            "movq %1, %%r15\n"
+            :
+            : "r"(delLevel), "r"(delId)
+            : "r15", "r14");
+        // Выкинем статус из процесса, означающий, что в
+        // нём что-то произошло. В данном случае -
+        // делегация.
+        raise(SIGCHLD);
+        printf("Поддерево %d: задача перенаправлена.\n", currentPid);
     }
 
     exit(0);
@@ -138,16 +219,8 @@ int tree()
     pid_t root = fork();
     if (root == 0)
     {
-        // Прочитываем файл, который указывает, какому 
-        // элементу дерева какой массив сортировать
-        int *workers = malloc(sizeof(int *) * 1000);
-        int workersSize = retreiveFifo(0, workers, 1000);
-
         // Запускаем рекурентную сортировку
-        tree_rec(0, workers, workersSize);
-
-        // Освобождение ресурсов
-        free(workers);
+        tree_rec(0);
         exit(0);
     }
 
@@ -163,9 +236,8 @@ int main()
 {
     // Наша задача - отсортировать массив чисел. Инициалазируем его
     // и заполняем случайными числами под количетсво поддеревьев и листьев
-    int arraysAmount = ((1 << MAX_LEVEL) - 1);
-    int **sortArray = malloc(sizeof(int *) * arraysAmount);
-    for (int i = 0; i < arraysAmount; i++)
+    int **sortArray = malloc(sizeof(int *) * ARRAYS_AMOUNT);
+    for (int i = 0; i < ARRAYS_AMOUNT; i++)
     {
         sortArray[i] = malloc(sizeof(int) * ARRAY_SIZE);
         for (int j = 0; j < ARRAY_SIZE; j++)
@@ -174,47 +246,37 @@ int main()
         }
     }
 
-    // Задаём соответствие, какой id поддерева/листа какой массив сортирует
-    int *workersId = malloc(sizeof(int) * arraysAmount);
-    for (int i = 0; i < arraysAmount; i++)
-    {
-        workersId[i] = i;
-    }
-
-    // Запишем, какому дереву соответствует какой массив в файл
-    saveFifo(0, workersId, arraysAmount);
     // Запишем в файлы массивы для сортировки
-    for (int i = 0; i < arraysAmount; i++)
+    for (int i = 0; i < ARRAYS_AMOUNT; i++)
     {
-        saveFifo(i + 1, sortArray[i], ARRAY_SIZE);
+        saveFifo(i, sortArray[i], ARRAY_SIZE);
     }
 
     printf("********************\n");
-    printf("Пейлоад задач:\n");
-    for (int i = 0; i < arraysAmount; i++) {
-        printf("%d ", workersId[i]);
-    }
     printf("\nМассивы:\n");
-    for (int i = 0; i < arraysAmount; i++) {
+    for (int i = 0; i < ARRAYS_AMOUNT; i++)
+    {
         printf("%d: ", i);
-        for (int j = 0; j < ARRAY_SIZE; j++) {
+        for (int j = 0; j < ARRAY_SIZE; j++)
+        {
             printf("%d ", sortArray[i][j]);
         }
         printf("\n");
     }
     printf("********************\n");
 
-
     printf("Выполняется сортировка...\n");
     // Запускаем сортировку
-    tree(sortArray, workersId);
+    tree();
     printf("Сортировка выполнена\n");
     printf("********************\n");
     printf("Массивы:\n");
-    for (int i = 0; i < arraysAmount; i++) {
+    for (int i = 0; i < ARRAYS_AMOUNT; i++)
+    {
         printf("%d: ", i);
-        int bufSize = retreiveFifo(i + 1, sortArray[i], ARRAY_SIZE);
-        for (int j = 0; j < ARRAY_SIZE; j++) {
+        int bufSize = retreiveFifo(i, sortArray[i], ARRAY_SIZE);
+        for (int j = 0; j < ARRAY_SIZE; j++)
+        {
             printf("%d ", sortArray[i][j]);
         }
         printf("\n");
