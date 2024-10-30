@@ -78,5 +78,39 @@ u_int64_t get_storage_amount() {
     return get_storage_amount_src(&storage);
 }
 
+u_int64_t cakes_thrown = 0;
+u_int64_t brownies_thrown = 0;
+u_int64_t candies_thrown = 0;
+u_int64_t gingerbreads_thrown = 0;
+
+u_int64_t cakes_baked = 0;
+u_int64_t brownies_baked = 0;
+u_int64_t candies_baked = 0;
+u_int64_t gingerbreads_baked = 0;
+
+u_int64_t cakes_ate = 0;
+u_int64_t brownies_ate = 0;
+u_int64_t candies_ate = 0;
+u_int64_t gingerbreads_ate = 0;
+
+void print_report() {
+    printf("А теперь посчитаем...\n");
+    printf("Тортики:\n");
+    printf("- Испечено: %lu\n", cakes_baked);
+    printf("- Выброшено: %lu\n", cakes_thrown);
+    printf("- Слопано: %lu\n\n", cakes_ate);
+    printf("Пироженки:\n");
+    printf("- Испечено: %lu\n", brownies_baked);
+    printf("- Выброшено: %lu\n", brownies_thrown);
+    printf("- Слопано: %lu\n\n", brownies_ate);
+    printf("Конфетки:\n");
+    printf("- Испечено: %lu\n", candies_baked);
+    printf("- Выброшено: %lu\n", candies_thrown);
+    printf("- Слопано: %lu\n\n", candies_ate);
+    printf("Пряники:\n");
+    printf("- Испечено: %lu\n", gingerbreads_baked);
+    printf("- Выброшено: %lu\n", gingerbreads_thrown);
+    printf("- Слопано: %lu\n", gingerbreads_ate);
+}
 
 #endif

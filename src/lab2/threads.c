@@ -13,16 +13,41 @@ void *workshop(void *args_outer)
         usleep(args[2] * 1000);
         // Начинаем транспортировку, требующую синхронизацию
         pthread_mutex_lock(&mutex);
+        switch (plus_offs)
+        {
+        case CAKE_OFFSET:
+            cakes_baked += plus_amnt;
+            break;
+        case CANDY_OFFSET:
+            candies_baked += plus_amnt;
+            break;
+        case BROWNIE_OFFSET:
+            brownies_baked += plus_amnt;
+            break;
+        case GINGERBREAD_OFFSET:
+            gingerbreads_baked += plus_amnt;
+            break;
+        }
         u_int64_t total = get_storage_amount();
         if (total + plus_amnt > MAX_STORAGE_SIZE)
         {
-            printf("Место на складе закончилось! Выкидываем еду типа %llu в кол-ве: %llu\n", plus_offs, total + plus_amnt - MAX_STORAGE_SIZE);
-            plus_amnt -= total + plus_amnt - MAX_STORAGE_SIZE;
-        }
+            switch (plus_offs)
+            {
+            case CAKE_OFFSET:
+                cakes_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                break;
+            case CANDY_OFFSET:
+                candies_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                break;
+            case BROWNIE_OFFSET:
+                brownies_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                break;
+            case GINGERBREAD_OFFSET:
+                gingerbreads_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                break;
+            }
 
-        if (plus_amnt != 0)
-        {
-            printf("С пылу с жару! Добавляем %llu хлебобулочных изделий. А тип продукции: %llu.\n", plus_amnt, plus_offs);
+            plus_amnt -= total + plus_amnt - MAX_STORAGE_SIZE;
         }
 
         set_amount(plus_offs, get_amount(plus_offs) + plus_amnt);
@@ -72,7 +97,21 @@ bool serpent_head_rec(u_int64_t serpent_preferences, int current_offset, int max
         return false;
     }
 
-    printf("Сейчас мы схаваем одну булку из %llu булок! А тип продукции: %llu.\n", get_amount(max_offset), max_offset);
+    switch (max_offset)
+    {
+    case CAKE_OFFSET:
+        cakes_ate++;
+        break;
+    case CANDY_OFFSET:
+        candies_ate++;
+        break;
+    case BROWNIE_OFFSET:
+        brownies_ate++;
+        break;
+    case GINGERBREAD_OFFSET:
+        gingerbreads_ate++;
+        break;
+    }
     set_amount(max_offset, get_amount(max_offset) - 1);
 
     pthread_mutex_unlock(&mutex);
@@ -105,26 +144,26 @@ int main()
         workshop_a, workshop_b, workshop_c, workshop_d;
 
     u_int64_t factory_a_args[] = {2,
-                                  1, CAKE_OFFSET, 700,
-                                  2, BROWNIE_OFFSET, 500};
+                                  1, CAKE_OFFSET, 70,
+                                  2, BROWNIE_OFFSET, 50};
 
     u_int64_t factory_b_args[] = {2,
-                                  3, CANDY_OFFSET, 600,
-                                  1, GINGERBREAD_OFFSET, 400};
+                                  3, CANDY_OFFSET, 60,
+                                  1, GINGERBREAD_OFFSET, 40};
 
     u_int64_t serpent_head_a_args[] = {(STORAGE_CHUNK_MASK << CAKE_OFFSET) |
                                            (STORAGE_CHUNK_MASK << CANDY_OFFSET),
-                                       800};
+                                       80};
 
     u_int64_t serpent_head_b_args[] = {(STORAGE_CHUNK_MASK << BROWNIE_OFFSET) |
                                            (STORAGE_CHUNK_MASK << GINGERBREAD_OFFSET),
-                                       900};
+                                       90};
 
     u_int64_t serpent_head_c_args[] = {(STORAGE_CHUNK_MASK << BROWNIE_OFFSET) |
                                            (STORAGE_CHUNK_MASK << GINGERBREAD_OFFSET) |
                                            (STORAGE_CHUNK_MASK << CAKE_OFFSET) |
                                            (STORAGE_CHUNK_MASK << CANDY_OFFSET),
-                                       700};
+                                       70};
 
     pthread_mutexattr_init(&mutex_attr);
     pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -139,13 +178,17 @@ int main()
     pthread_detach(serpent_head_a);
     pthread_detach(serpent_head_b);
     pthread_detach(serpent_head_c);
-
-    pthread_mutex_destroy(&mutex);
-    pthread_mutexattr_destroy(&mutex_attr);
     getchar();
 
     // Выходим - is_running = false. Поток должен завершиться сам.
     is_running = false;
+
+    pthread_mutex_lock(&mutex);
+    print_report();
+    pthread_mutex_unlock(&mutex);
+
+    pthread_mutex_destroy(&mutex);
+    pthread_mutexattr_destroy(&mutex_attr);
 
     return 0;
 }

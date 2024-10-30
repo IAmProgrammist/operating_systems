@@ -41,22 +41,48 @@ void create_workshop(u_int64_t *args)
         u_int64_t plus_offs = args[1];
         usleep(args[2] * 1000);
         sem_wait(shm_sem);
+        switch (plus_offs)
+        {
+        case CAKE_OFFSET:
+            cakes_baked += plus_amnt;
+            break;
+        case CANDY_OFFSET:
+            candies_baked += plus_amnt;
+            break;
+        case BROWNIE_OFFSET:
+            brownies_baked += plus_amnt;
+            break;
+        case GINGERBREAD_OFFSET:
+            gingerbreads_baked += plus_amnt;
+            break;
+        }
         u_int64_t total = get_storage_amount_src(shm_storage);
         if (total + plus_amnt > MAX_STORAGE_SIZE)
         {
-            printf("Место на складе закончилось! Выкидываем еду типа %llu в кол-ве: %llu\n", plus_offs, total + plus_amnt - MAX_STORAGE_SIZE);
+            switch (plus_offs)
+            {
+            case CAKE_OFFSET:
+                cakes_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                break;
+            case CANDY_OFFSET:
+                candies_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                break;
+            case BROWNIE_OFFSET:
+                brownies_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                break;
+            case GINGERBREAD_OFFSET:
+                gingerbreads_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                break;
+            }
+
             plus_amnt -= total + plus_amnt - MAX_STORAGE_SIZE;
         }
 
-        if (plus_amnt != 0)
-        {
-            printf("С пылу с жару! Добавляем %llu хлебобулочных изделий. А тип продукции: %llu.\n", plus_amnt, plus_offs);
-        }
-
-        set_amount_src(shm_storage, plus_offs, get_amount_src(shm_storage, plus_offs) + plus_amnt);
+                set_amount_src(shm_storage, plus_offs, get_amount_src(shm_storage, plus_offs) + plus_amnt);
         sem_post(shm_sem);
     }
     printf("Цех умер!\n");
+    print_report();
     exit(0);
 }
 
@@ -89,11 +115,24 @@ bool serpent_head_rec(u_int64_t serpent_preferences, int current_offset, int max
 
     if (max_offset == -1)
     {
-        // printf("Змей Горыныч очень расстроен! Он не нашёл, чего поесть. Голова ушла уничтожать деревню и скоро вернётся.\n");
         return false;
     }
 
-    printf("Сейчас мы схаваем одну булку из %llu булок! А тип продукции: %llu.\n", get_amount_src(shm_storage, max_offset), max_offset);
+    switch (max_offset)
+    {
+    case CAKE_OFFSET:
+        cakes_ate++;
+        break;
+    case CANDY_OFFSET:
+        candies_ate++;
+        break;
+    case BROWNIE_OFFSET:
+        brownies_ate++;
+        break;
+    case GINGERBREAD_OFFSET:
+        gingerbreads_ate++;
+        break;
+    }
     set_amount_src(shm_storage, max_offset, get_amount_src(shm_storage, max_offset) - 1);
 
     return true;
@@ -124,6 +163,7 @@ void create_serpent(u_int64_t *data)
             usleep(data[1] * 1000);
     }
     printf("Змей Горыныч умер!\n");
+    print_report();
     exit(0);
 }
 

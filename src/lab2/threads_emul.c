@@ -12,6 +12,7 @@ void *factory(void *paramOuter)
     {
         long new_check = current_millis();
 
+        pthread_mutex_lock(&mutex);
         for (u_int64_t i = 0; i < prod_amount; i++)
         {
             u_int64_t plus_amnt = param[3 * i + 1];
@@ -19,28 +20,52 @@ void *factory(void *paramOuter)
             u_int64_t plus_time = param[3 * i + 3];
             u_int64_t total_ticks = (new_check - init) / plus_time;
             u_int64_t last_ticks = (last_check - init) / plus_time;
-            u_int64_t amount_after = total_ticks - last_ticks;
+            u_int64_t amount_after = total_ticks > last_ticks ? (total_ticks - last_ticks) : 0;
             plus_amnt *= amount_after;
-            // Количество продукции увеличивается в соответствие с 
-            // количеством "тиков". 
-            pthread_mutex_lock(&mutex);
+            // Количество продукции увеличивается в соответствие с
+            // количеством "тиков".
+
+            switch (plus_offs)
+            {
+            case CAKE_OFFSET:
+                cakes_baked += plus_amnt;
+                break;
+            case CANDY_OFFSET:
+                candies_baked += plus_amnt;
+                break;
+            case BROWNIE_OFFSET:
+                brownies_baked += plus_amnt;
+                break;
+            case GINGERBREAD_OFFSET:
+                gingerbreads_baked += plus_amnt;
+                break;
+            }
 
             u_int64_t total = get_storage_amount();
             if (total + plus_amnt > MAX_STORAGE_SIZE)
             {
-                printf("Место на складе закончилось! Выкидываем еду типа %llu в кол-ве: %llu\n", plus_offs, total + plus_amnt - MAX_STORAGE_SIZE);
+                switch (plus_offs)
+                {
+                case CAKE_OFFSET:
+                    cakes_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                    break;
+                case CANDY_OFFSET:
+                    candies_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                    break;
+                case BROWNIE_OFFSET:
+                    brownies_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                    break;
+                case GINGERBREAD_OFFSET:
+                    gingerbreads_thrown += (total + plus_amnt - MAX_STORAGE_SIZE);
+                    break;
+                }
+
                 plus_amnt -= total + plus_amnt - MAX_STORAGE_SIZE;
             }
 
-            if (plus_amnt != 0)
-            {
-                printf("С пылу с жару! Добавляем %llu хлебобулочных изделий. А тип продукции: %llu.\n", plus_amnt, plus_offs);
-            }
-
             set_amount(plus_offs, get_amount(plus_offs) + plus_amnt);
-
-            pthread_mutex_unlock(&mutex);
         }
+        pthread_mutex_unlock(&mutex);
 
         last_check = new_check;
     }
@@ -50,10 +75,11 @@ void *factory(void *paramOuter)
 
 void serpent_head_rec(u_int64_t serpent_preferences, int left)
 {
-    // Здесь обход по складу несколько раз обоснован тем, что 
+    // Здесь обход по складу несколько раз обоснован тем, что
     // может пройти несколько тиков. Рекурсивно мы их и обрабатываем
     if (left == 0)
         return;
+
     pthread_mutex_lock(&mutex);
     int max_offset = -1;
     u_int64_t max_amount = 0;
@@ -79,7 +105,21 @@ void serpent_head_rec(u_int64_t serpent_preferences, int left)
         return;
     }
 
-    printf("Сейчас мы схаваем одну булку из %llu булок! А тип продукции: %llu.\n", max_amount, max_offset);
+    switch (max_offset)
+    {
+    case CAKE_OFFSET:
+        cakes_ate++;
+        break;
+    case CANDY_OFFSET:
+        candies_ate++;
+        break;
+    case BROWNIE_OFFSET:
+        brownies_ate++;
+        break;
+    case GINGERBREAD_OFFSET:
+        gingerbreads_ate++;
+        break;
+    }
     set_amount(max_offset, max_amount - 1);
     serpent_head_rec(serpent_preferences, left - 1);
     pthread_mutex_unlock(&mutex);
@@ -97,7 +137,7 @@ void *serpent_head(void *paramOuter)
         long new_check = current_millis();
         u_int64_t total_ticks = (new_check - init) / param[1];
         u_int64_t last_ticks = (last_check - init) / param[1];
-        u_int64_t amount_after = total_ticks - last_ticks;
+        u_int64_t amount_after = total_ticks > last_ticks ? (total_ticks - last_ticks) : 0;
         // Здесь также определяем кол-во тиков
 
         serpent_head_rec(param[0], amount_after);
@@ -110,16 +150,16 @@ void *serpent_head(void *paramOuter)
 
 /*
 Данный вариант не совсем корректен.
-Под потреблением фабрик и змеем горынычем 
-могут подразумеваться полезные нагрузки, 
+Под потреблением фабрик и змеем горынычем
+могут подразумеваться полезные нагрузки,
 однако здесь мы моделируем работу
 этой системы.
 
 Эта программа тоже имеет право на жизнь,
-например если мы создаём игру про фабрики и драконов, 
-здесь гораздо важнее справедливость модели и 
-следование установленным правилам,  
-именно поэтому мы высчитываем, сколько "тиков" прошло и 
+например если мы создаём игру про фабрики и драконов,
+здесь гораздо важнее справедливость модели и
+следование установленным правилам,
+именно поэтому мы высчитываем, сколько "тиков" прошло и
 следовательно сколько было выполнено работ.
 */
 int main()
@@ -160,18 +200,22 @@ int main()
     pthread_create(&serpent_head_b, NULL, serpent_head, (void *)serpent_head_b_args);
     pthread_create(&serpent_head_c, NULL, serpent_head, (void *)serpent_head_c_args);
 
-    pthread_join(factory_a, NULL);
-    pthread_join(factory_b, NULL);
-    pthread_join(serpent_head_a, NULL);
-    pthread_join(serpent_head_b, NULL);
-    pthread_join(serpent_head_c, NULL);
-
-    pthread_mutex_destroy(&mutex);
-    pthread_mutexattr_destroy(&mutex_attr);
+    pthread_detach(factory_a);
+    pthread_detach(factory_b);
+    pthread_detach(serpent_head_a);
+    pthread_detach(serpent_head_b);
+    pthread_detach(serpent_head_c);
     getchar();
 
     // Выходим - is_running = false. Поток должен завершиться сам.
     is_running = false;
+
+    pthread_mutex_lock(&mutex);
+    print_report();
+    pthread_mutex_unlock(&mutex);
+
+    pthread_mutex_destroy(&mutex);
+    pthread_mutexattr_destroy(&mutex_attr);
 
     return 0;
 }
