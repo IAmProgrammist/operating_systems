@@ -18,52 +18,44 @@ fn main() {
     let mut search_string = String::new();
     std::io::stdin().read_line(&mut search_string).unwrap();
     let search_string = search_string.trim();
-    let mut search_index = search_string.as_bytes().len() - 1;
-    let mut read_index = search_string.as_bytes().len() - 1;
+    let mut search_index = search_string.as_bytes().len() as i64 - 1;
+    let mut read_index = search_string.as_bytes().len() as i64 - 1;
 
     let mut offset_map = std::collections::HashMap::new();
 
     for i in 0..(search_string.as_bytes().len()) {
-        offset_map.insert(search_string.as_bytes()[i], i);
+        offset_map.insert(search_string.as_bytes()[i], i as i64);
     }
+    file.seek(std::io::SeekFrom::Start(read_index as u64)).unwrap();
     
     let found_index: i64 = loop {
-        match file.seek(std::io::SeekFrom::Start(read_index as u64)) {
-            Ok(res) => res,
-            Err(_err) => {
-                println!("Произошла ошибка при считывании файла");
-                std::process::exit(1);
-            }
-        };
-        let mut buf = vec![0u8, 1];
-        match file.read(&mut buf) {
+        let mut buf = [0u8];
+        match file.read_exact(&mut buf) {
             Ok(res) => {
-                if res == 0 {
-                    break -1
-                }
-
                 res
             },
             Err(_err) => {
-                println!("Произошла ошибка при считывании файла");
-                std::process::exit(1);
+                break -1
             }
         };
 
-        if search_string.as_bytes()[search_index] == buf[0] {
+        if search_string.as_bytes()[search_index as usize] == buf[0] {
             if search_index == 0 {
                 break read_index as i64
             }
 
             search_index = search_index - 1;
-            read_index = read_index - 1;
+            read_index -= 1;
+            file.seek(std::io::SeekFrom::Current(-2)).unwrap();
         } else {
             if offset_map.contains_key(&buf[0]) {
-                search_index = search_string.as_bytes().len() - 1;
-                read_index = read_index + search_string.as_bytes().len() - offset_map.get(&buf[0]).unwrap() - 1;
+                search_index = search_string.as_bytes().len() as i64 - 1;
+                read_index += search_string.as_bytes().len() as i64 - offset_map.get(&buf[0]).unwrap() - 1;
+                file.seek(std::io::SeekFrom::Current(search_string.as_bytes().len() as i64 - offset_map.get(&buf[0]).unwrap() - 2)).unwrap();
             } else {
-                search_index = search_string.as_bytes().len() - 1;
-                read_index = read_index + search_string.as_bytes().len();
+                search_index = search_string.as_bytes().len() as i64 - 1;
+                read_index += search_string.as_bytes().len() as i64;
+                file.seek(std::io::SeekFrom::Current(search_string.as_bytes().len() as i64 - 1)).unwrap();
             }
         }
     };
