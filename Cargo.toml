@@ -1,0 +1,8 @@
+[package]
+name = "operating_systems"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "lab3_task1"
+path = "./src/lab3/task1.rs"
