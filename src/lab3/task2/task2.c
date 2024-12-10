@@ -354,6 +354,8 @@ static int fs_unlink(const char *path) {
     if (file_list == NULL)
         return -ENOENT;
 
+    log_operation("delete", path);
+
     time_t now_time_t;
     struct tm *now;
     time(&now_time_t);
