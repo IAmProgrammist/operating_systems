@@ -1,0 +1,1 @@
+fusermount3 -u ./tmp/lab3
