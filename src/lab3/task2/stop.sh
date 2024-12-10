@@ -1,0 +1,1 @@
+umount tmp/lab3
