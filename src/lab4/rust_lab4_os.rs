@@ -81,7 +81,6 @@ impl Operations for OS4Lab {
         writer: &mut impl IoBufferWriter,
         offset: u64,
     ) -> Result<usize> {
-        pr_info!("File for queue device was read\n");
         let offset = offset.try_into()?;
         
         // Получить мьютексы для устройства
@@ -91,15 +90,18 @@ impl Operations for OS4Lab {
         let begin_index = data.begin_index.lock();
         let end_index = data.end_index.lock();
         
+        pr_info!("Peek operation started. Queue len: {}\n", *count);
+        
         if *count == 0 {
-            pr_info!("Queue is empty - nothing to peek!\n");
-            return Ok(0);
+            pr_err!("Peek operation failed. Nothing to look at.\n");
+            return Err(EPERM);
         }
         
         let vec = &(*queue)[*begin_index];
         
         let len = core::cmp::min(writer.len(), vec.len().saturating_sub(offset));
         writer.write_slice(&vec[offset..][..len])?;
+        pr_info!("Peek operation succeeded.\n");
         Ok(len)
     }
 
@@ -114,7 +116,6 @@ impl Operations for OS4Lab {
         reader: &mut impl IoBufferReader,
         _offset: u64,
     ) -> Result<usize> {
-        pr_info!("File for queue device was written\n");
         // Будем считывать все данные без буферизации
         let copy = reader.read_all()?;
         let len = copy.len();
@@ -127,33 +128,36 @@ impl Operations for OS4Lab {
         let mut end_index = data.end_index.lock();
         
         if copy.starts_with(b"enqueue ") {
-            pr_info!("Enqueue operation started queue len: {}, count: {}\n", (*queue).len(), *count);
+            pr_info!("Enqueue operation started. Queue len: {}\n", *count);
             let copy = copy.strip_prefix(b"enqueue ");
             
             if (*queue).len() == *count {
-                pr_info!("Enqueue overflow\n");
-                return Ok(len);
+                pr_err!("Enqueue overflow.\n");
+                return Err(ENOSPC);
             }
             
             if let Some(valid_copy) = copy {
                 (*queue)[*end_index] = valid_copy.try_to_vec()?;
                 *end_index = (*end_index + 1) % (*queue).len();
                 *count += 1;
-                pr_info!("Enqueue args count: {} begin: {} end: {}\n", *count, *begin_index, *end_index);
+                pr_info!("Enqueue operation succeeded. Queue len: {}\n", *count);
             } else {
-                pr_info!("Enqueue somehow failed\n");
-                return Ok(len);
+                pr_err!("Enqueue command parse error.\n");
+                return Err(EINVAL);
             }
         } else if copy.starts_with(b"dequeue") {
-            pr_info!("Dequeue operation started\n");
+            pr_info!("Dequeue operation started. Queue len: {}\n", *count);
             if *count == 0 {
-                return Ok(len);
+                pr_err!("Dequeue operation failed. Nothing to delete.\n");
+                return Err(EPERM);
             }
             
             *begin_index = (*begin_index + 1) % (*queue).len();
             *count -= 1;
+            pr_info!("Dequeue operation succeeded. Queue len: {}\n", *count);
         } else {
-            return Ok(len);
+            pr_err!("Unable to parse command. Queue len: {}\n", *count);
+            return Err(EINVAL);
         }
         
         Ok(len)
